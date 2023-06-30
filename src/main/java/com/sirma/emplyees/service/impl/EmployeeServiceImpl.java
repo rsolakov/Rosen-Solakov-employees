@@ -8,7 +8,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
 import java.time.LocalDate;
 import java.util.*;
 
@@ -16,9 +15,23 @@ import java.util.*;
 @RequiredArgsConstructor
 @Slf4j
 public class EmployeeServiceImpl implements EmployeeService {
+
     @Override
     public EmployeeProjectResponse findLongestWorkingPair(List<EmployeeProject> employeeProjects) {
-        Map<String, EmployeeProjectResponse> map = new HashMap<>();
+        Optional<Map.Entry<String, Set<LocalDate>>> mostDaysWorkedTogetherPair = calculateTotalDaysWorked(employeeProjects).entrySet().stream()
+                .max(Comparator.comparingLong(entry -> entry.getValue().size()));
+
+        if (mostDaysWorkedTogetherPair.isPresent()) {
+            String[] employeeIds = mostDaysWorkedTogetherPair.get().getKey().split("-");
+
+            return new EmployeeProjectResponse(employeeIds[0], employeeIds[1], mostDaysWorkedTogetherPair.get().getValue().size());
+        } else {
+            throw new NoCommonProjectsException();
+        }
+    }
+
+    private Map<String, Set<LocalDate>> calculateTotalDaysWorked(List<EmployeeProject> employeeProjects) {
+        Map<String, Set<LocalDate>> daysWorkedTogetherMap = new HashMap<>();
 
         for (int i = 0; i < employeeProjects.size(); i++) {
             EmployeeProject employeeProject1 = employeeProjects.get(i);
@@ -47,22 +60,25 @@ public class EmployeeServiceImpl implements EmployeeService {
 
                         LocalDate commonStartDate = dateFrom1.isAfter(dateFrom2) ? dateFrom1 : dateFrom2;
                         LocalDate commonEndDate = dateTo1.isBefore(dateTo2) ? dateTo1 : dateTo2;
-                        long daysWorked = Duration.between(commonStartDate.atStartOfDay(), commonEndDate.atStartOfDay()).toDays();
 
-                        String key = empId1 + "-" + empId2;
-                        EmployeeProjectResponse existingPair = map.get(key);
-                        if (existingPair == null || daysWorked > existingPair.getDaysWorkedTogether()) {
-                            map.put(key, new EmployeeProjectResponse(empId1, empId2, daysWorked));
+                        String key = generateKey(empId1, empId2);
+                        Set<LocalDate> daysWorkedTogetherValue = daysWorkedTogetherMap.getOrDefault(key, new HashSet<>());
+                        for (LocalDate date = commonStartDate; !date.isAfter(commonEndDate); date = date.plusDays(1)) {
+                            daysWorkedTogetherValue.add(date);
                         }
+                        daysWorkedTogetherMap.put(key, daysWorkedTogetherValue);
                     } catch (NoCommonProjectsException ex) {
                         log.info(ex.getMessage());
                     }
+
                 }
             }
         }
 
-        Optional<EmployeeProjectResponse> longestWorkingPair = map.values().stream().max(Comparator.comparingLong(EmployeeProjectResponse::getDaysWorkedTogether));
+        return daysWorkedTogetherMap;
+    }
 
-        return longestWorkingPair.orElseThrow(NoCommonProjectsException::new);
+    private String generateKey(String empId1, String empId2) {
+        return empId1.compareTo(empId2) < 0 ? empId1 + "-" + empId2 : empId2 + "-" + empId1;
     }
 }
